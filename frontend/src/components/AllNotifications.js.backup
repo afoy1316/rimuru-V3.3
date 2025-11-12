@@ -1,0 +1,340 @@
+import React, { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useLanguage } from '../contexts/LanguageContext';
+import axios from 'axios';
+import { 
+  Bell, 
+  RefreshCw, 
+  CheckCheck,
+  User,
+  FileText,
+  DollarSign,
+  CreditCard,
+  UserPlus,
+  AlertCircle,
+  Info,
+  CheckCircle,
+  XCircle,
+  AlertTriangle
+} from 'lucide-react';
+import { toast } from 'sonner';
+import notificationNavigationService from '../services/NotificationNavigationService';
+
+const API = process.env.REACT_APP_BACKEND_URL || import.meta.env.REACT_APP_BACKEND_URL;
+
+const AllNotifications = () => {
+  const { language, t } = useLanguage();
+  const navigate = useNavigate();
+  const [notifications, setNotifications] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [filter, setFilter] = useState('all'); // all, unread, read
+  const [typeFilter, setTypeFilter] = useState('all');
+  const [error, setError] = useState(null);
+
+  const fetchNotifications = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      const token = localStorage.getItem('token') || localStorage.getItem('admin_token');
+      const isAdmin = localStorage.getItem('admin_token');
+      
+      if (!token) {
+        setNotifications([]);
+        return;
+      }
+      
+      const endpoint = isAdmin ? '/api/admin/notifications' : '/api/client/notifications';
+      
+      const response = await axios.get(`${API}${endpoint}?limit=100`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      
+      // Ensure response.data is an array
+      const notificationData = Array.isArray(response.data) ? response.data : [];
+      // API success - data loaded
+      setNotifications(notificationData);
+      
+    } catch (error) {
+      console.error('Error fetching notifications:', error);
+      // Error details logged for debugging
+      
+      // Set empty array for now, but keep detailed logging
+      setNotifications([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchNotifications();
+  }, [fetchNotifications]);
+
+  const markAsRead = async (notificationId) => {
+    try {
+      const token = localStorage.getItem('token') || localStorage.getItem('admin_token');
+      const isAdmin = localStorage.getItem('admin_token');
+      
+      if (!token) return;
+      
+      const endpoint = isAdmin ? '/api/admin/notifications' : '/api/client/notifications';
+      
+      await axios.put(`${API}${endpoint}/${notificationId}/read`, {}, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      
+      // Update local state
+      setNotifications(prev => 
+        prev.map(notif => 
+          notif.id === notificationId ? { ...notif, is_read: true } : notif
+        )
+      );
+    } catch (error) {
+      console.error('Error marking notification as read:', error);
+      // Don't show toast to prevent error spam
+    }
+  };
+
+  const markAllAsRead = async () => {
+    try {
+      const token = localStorage.getItem('token') || localStorage.getItem('admin_token');
+      const isAdmin = localStorage.getItem('admin_token');
+      
+      if (!token) return;
+      
+      const endpoint = isAdmin ? '/api/admin/notifications' : '/api/client/notifications';
+      
+      await axios.put(`${API}${endpoint}/mark-all-read`, {}, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      
+      // Update local state
+      setNotifications(prev => 
+        prev.map(notif => ({ ...notif, is_read: true }))
+      );
+      
+      toast.success('Semua notifikasi telah ditandai sebagai dibaca');
+    } catch (error) {
+      console.error('Error marking all notifications as read:', error);
+      // Don't show error toast to prevent spam
+    }
+  };
+
+  const handleNotificationClick = async (notification) => {
+    try {
+      // Mark as read if not already
+      if (!notification.is_read) {
+        await markAsRead(notification.id);
+      }
+      
+      // Navigate to relevant page
+      const userType = localStorage.getItem('admin_token') ? 'admin' : 'client';
+      notificationNavigationService.handleNotificationClick(
+        notification.type,
+        notification.reference_id,
+        userType
+      );
+    } catch (error) {
+      console.error('Error handling notification click:', error);
+    }
+  };
+
+  const getNotificationIcon = (type, isRead) => {
+    const baseClasses = isRead ? 'text-gray-400' : 'text-blue-600';
+    
+    switch (type) {
+      case 'account_request':
+      case 'new_account_request':
+      case 'approval':
+      case 'account_approved':
+      case 'account_rejected':
+      case 'account_completed':
+        return <User className={`w-5 h-5 ${baseClasses}`} />;
+      
+      case 'payment_proof':
+      case 'payment_verified':
+      case 'payment_rejected':
+      case 'topup_request':
+      case 'topup_verified':
+      case 'topup_cancelled':
+        return <DollarSign className={`w-5 h-5 ${baseClasses}`} />;
+      
+      case 'new_withdraw_request':
+      case 'withdraw_approved':
+      case 'withdraw_rejected':
+        return <RefreshCw className={`w-5 h-5 ${baseClasses}`} />;
+      
+      case 'transfer_request':
+      case 'transfer_created':
+      case 'transfer_approved':
+      case 'transfer_rejected':
+        return <RefreshCw className={`w-5 h-5 ${baseClasses}`} />;
+      
+      case 'user_registration':
+        return <User className={`w-5 h-5 ${baseClasses}`} />;
+      
+      case 'warning':
+        return <AlertTriangle className={`w-5 h-5 ${baseClasses}`} />;
+      
+      case 'info':
+        return <Info className={`w-5 h-5 ${baseClasses}`} />;
+      
+      default:
+        return <Bell className={`w-5 h-5 ${baseClasses}`} />;
+    }
+  };
+
+  const formatDate = (dateString) => {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffInMs = now - date;
+    const diffInMinutes = Math.floor(diffInMs / 60000);
+    const diffInHours = Math.floor(diffInMs / 3600000);
+    const diffInDays = Math.floor(diffInMs / 86400000);
+
+    if (diffInMinutes < 1) return 'Baru saja';
+    if (diffInMinutes < 60) return `${diffInMinutes} menit yang lalu`;
+    if (diffInHours < 24) return `${diffInHours} jam yang lalu`;
+    if (diffInDays < 7) return `${diffInDays} hari yang lalu`;
+    
+    return date.toLocaleDateString('id-ID', { 
+      day: 'numeric', 
+      month: 'short', 
+      year: 'numeric' 
+    });
+  };
+
+  const filteredNotifications = notifications.filter(notif => {
+    if (filter === 'unread' && notif.is_read) return false;
+    if (filter === 'read' && !notif.is_read) return false;
+    if (typeFilter !== 'all' && notif.type !== typeFilter) return false;
+    return true;
+  });
+
+  const unreadCount = notifications.filter(n => !n.is_read).length;
+
+  // Component render state ready
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-3">
+            <Bell className="w-8 h-8 text-blue-600" />
+            <div>
+              <h1 className="text-2xl font-bold text-gray-900">Semua Notifikasi</h1>
+              <p className="text-sm text-gray-500">
+                {notifications.length} total, {unreadCount} belum dibaca
+              </p>
+            </div>
+          </div>
+          
+          <div className="flex items-center space-x-3">
+            {unreadCount > 0 && (
+              <button
+                onClick={markAllAsRead}
+                className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                <CheckCheck className="w-4 h-4" />
+                <span>Tandai Semua Dibaca</span>
+              </button>
+            )}
+            
+            <button
+              onClick={fetchNotifications}
+              disabled={loading}
+              className="flex items-center space-x-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+              <span>Refresh</span>
+            </button>
+          </div>
+        </div>
+        
+        {/* Filters */}
+        <div className="mt-6 flex flex-wrap gap-4">
+          <div className="flex rounded-lg border border-gray-300 overflow-hidden">
+            {['all', 'unread', 'read'].map(f => (
+              <button
+                key={f}
+                onClick={() => setFilter(f)}
+                className={`px-4 py-2 text-sm font-medium transition-colors ${
+                  filter === f 
+                    ? 'bg-blue-600 text-white' 
+                    : 'bg-white text-gray-700 hover:bg-gray-50'
+                }`}
+              >
+                {f === 'all' ? 'Semua' : f === 'unread' ? 'Belum Dibaca' : 'Sudah Dibaca'}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Content */}
+      <div>
+        {loading ? (
+          <div className="text-center py-12">
+            <RefreshCw className="w-8 h-8 text-gray-400 animate-spin mx-auto mb-4" />
+            <p className="text-gray-500">Memuat notifikasi...</p>
+          </div>
+        ) : filteredNotifications.length === 0 ? (
+          <div className="text-center py-12">
+            <Bell className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+            <h3 className="text-lg font-medium text-gray-900 mb-2">Tidak Ada Notifikasi</h3>
+            <p className="text-gray-500">
+              {filter === 'unread' ? 'Semua notifikasi sudah dibaca' : 'Belum ada notifikasi masuk'}
+            </p>
+          </div>
+        ) : (
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+            {filteredNotifications.map((notification, index) => (
+              <div
+                key={notification.id}
+                className={`flex items-start space-x-4 p-6 cursor-pointer transition-colors ${
+                  !notification.is_read 
+                    ? 'bg-blue-50 border-l-4 border-l-blue-500 hover:bg-blue-100' 
+                    : 'hover:bg-gray-50'
+                } ${index !== filteredNotifications.length - 1 ? 'border-b border-gray-100' : ''}`}
+                onClick={() => handleNotificationClick(notification)}
+              >
+                <div className="flex-shrink-0 mt-1">
+                  {getNotificationIcon(notification.type, notification.is_read)}
+                </div>
+                
+                <div className="flex-grow min-w-0">
+                  <div className="flex items-start justify-between">
+                    <div className="flex-grow">
+                      <h4 className={`text-sm font-semibold ${
+                        !notification.is_read ? 'text-gray-900' : 'text-gray-700'
+                      }`}>
+                        {notification.title}
+                      </h4>
+                      <p className={`mt-1 text-sm ${
+                        !notification.is_read ? 'text-gray-800' : 'text-gray-600'
+                      }`}>
+                        {notification.message}
+                      </p>
+                      <p className="mt-2 text-xs text-gray-500">
+                        {formatDate(notification.created_at)}
+                      </p>
+                    </div>
+                    
+                    {!notification.is_read && (
+                      <div className="flex-shrink-0 ml-4">
+                        <div className="w-2 h-2 bg-blue-600 rounded-full"></div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+export default AllNotifications;

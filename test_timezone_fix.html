@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Timezone Fix Verification</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 p-8">
+    <div class="max-w-3xl mx-auto space-y-8">
+        <h1 class="text-3xl font-bold mb-6 text-center">Timezone Conversion Fix - Verification</h1>
+        
+        <!-- OLD (BUGGY) Method -->
+        <div class="bg-white p-6 rounded-lg shadow-lg border-2 border-red-300">
+            <h2 class="text-xl font-semibold mb-4 text-red-600">❌ OLD METHOD (BUG)</h2>
+            <div class="bg-red-50 p-4 rounded-lg">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center">
+                        <div class="w-10 h-10 p-2 bg-blue-600 text-white rounded-full mr-3 flex items-center justify-center">
+                            <span class="text-sm">👤</span>
+                        </div>
+                        <div>
+                            <p class="text-sm font-semibold text-gray-900">admin</p>
+                            <p class="text-xs text-gray-600">Admin</p>
+                        </div>
+                    </div>
+                    <div class="text-right">
+                        <p class="text-xs text-gray-600">Tanggal Proses:</p>
+                        <p class="text-base font-medium text-gray-900" id="date-old-bug">
+                            <!-- Will be filled by JS -->
+                        </p>
+                    </div>
+                </div>
+            </div>
+            <div class="mt-3 p-3 bg-red-100 rounded text-sm">
+                <strong>Problem:</strong> Double conversion causes wrong time display
+            </div>
+        </div>
+
+        <!-- NEW (FIXED) Method -->
+        <div class="bg-white p-6 rounded-lg shadow-lg border-2 border-green-300">
+            <h2 class="text-xl font-semibold mb-4 text-green-600">✅ NEW METHOD (FIXED)</h2>
+            <div class="bg-green-50 p-4 rounded-lg">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center">
+                        <div class="w-10 h-10 p-2 bg-blue-600 text-white rounded-full mr-3 flex items-center justify-center">
+                            <span class="text-sm">👤</span>
+                        </div>
+                        <div>
+                            <p class="text-sm font-semibold text-gray-900">admin</p>
+                            <p class="text-xs text-gray-600">Admin</p>
+                        </div>
+                    </div>
+                    <div class="text-right">
+                        <p class="text-xs text-gray-600">Tanggal Proses:</p>
+                        <p class="text-base font-medium text-gray-900" id="date-new-fixed">
+                            <!-- Will be filled by JS -->
+                        </p>
+                    </div>
+                </div>
+            </div>
+            <div class="mt-3 p-3 bg-green-100 rounded text-sm">
+                <strong>Solution:</strong> Direct timezone conversion in toLocaleString
+            </div>
+        </div>
+
+        <!-- Current Browser Time -->
+        <div class="bg-white p-6 rounded-lg shadow-lg border-2 border-blue-300">
+            <h2 class="text-xl font-semibold mb-4 text-blue-600">🕐 CURRENT TIME</h2>
+            <div class="bg-blue-50 p-4 rounded-lg">
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <p class="text-xs text-gray-600">Your Browser Time:</p>
+                        <p class="text-lg font-bold text-blue-900" id="browser-time"></p>
+                    </div>
+                    <div>
+                        <p class="text-xs text-gray-600">GMT+7 (Jakarta):</p>
+                        <p class="text-lg font-bold text-blue-900" id="jakarta-time"></p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Explanation -->
+        <div class="bg-blue-50 p-6 rounded-lg border border-blue-200">
+            <h3 class="font-semibold text-blue-900 mb-3 text-lg">📝 Technical Explanation:</h3>
+            <div class="space-y-3 text-sm text-blue-800">
+                <div class="p-3 bg-white rounded">
+                    <strong class="text-red-600">❌ OLD (BUGGY) CODE:</strong>
+                    <pre class="mt-2 text-xs bg-gray-100 p-2 rounded overflow-x-auto">const date = new Date(processed_at);
+const jakartaTime = new Date(date.toLocaleString('en-US', { timeZone: 'Asia/Jakarta' }));
+const formatted = jakartaTime.toLocaleString('id-ID', { ... });</pre>
+                    <p class="mt-2 text-xs">Problem: Converting to string and back to Date causes timezone shift</p>
+                </div>
+                
+                <div class="p-3 bg-white rounded">
+                    <strong class="text-green-600">✅ NEW (FIXED) CODE:</strong>
+                    <pre class="mt-2 text-xs bg-gray-100 p-2 rounded overflow-x-auto">const date = new Date(processed_at);
+const formatted = date.toLocaleString('id-ID', {
+  ...,
+  timeZone: 'Asia/Jakarta'
+});</pre>
+                    <p class="mt-2 text-xs">Solution: Direct timezone conversion in one step</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Simulate a UTC timestamp (like from backend)
+        // Example: 2025-10-17T05:04:00Z (UTC) should become 12:04 in GMT+7
+        const utcTimestamp = '2025-10-17T05:04:00Z';
+        const testDate = new Date(utcTimestamp);
+        
+        console.log('Original UTC timestamp:', utcTimestamp);
+        console.log('Date object:', testDate);
+
+        // OLD METHOD (BUG) - Double conversion
+        const oldBugDate = new Date(testDate.toLocaleString('en-US', { timeZone: 'Asia/Jakarta' }));
+        const oldBugFormatted = oldBugDate.toLocaleString('id-ID', {
+            day: '2-digit',
+            month: 'short',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false
+        });
+        document.getElementById('date-old-bug').textContent = `${oldBugFormatted} (GMT+7)`;
+        console.log('OLD METHOD Result:', oldBugFormatted);
+
+        // NEW METHOD (FIXED) - Direct conversion
+        const newFixedFormatted = testDate.toLocaleString('id-ID', {
+            day: '2-digit',
+            month: 'short',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false,
+            timeZone: 'Asia/Jakarta'
+        });
+        document.getElementById('date-new-fixed').textContent = `${newFixedFormatted} (GMT+7)`;
+        console.log('NEW METHOD Result:', newFixedFormatted);
+
+        // Current times
+        const now = new Date();
+        
+        // Browser time
+        const browserTime = now.toLocaleString('id-ID', {
+            day: '2-digit',
+            month: 'short',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+            hour12: false
+        });
+        document.getElementById('browser-time').textContent = browserTime;
+
+        // Jakarta time
+        const jakartaTime = now.toLocaleString('id-ID', {
+            day: '2-digit',
+            month: 'short',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+            hour12: false,
+            timeZone: 'Asia/Jakarta'
+        });
+        document.getElementById('jakarta-time').textContent = jakartaTime;
+
+        // Update current time every second
+        setInterval(() => {
+            const now = new Date();
+            document.getElementById('browser-time').textContent = now.toLocaleString('id-ID', {
+                day: '2-digit',
+                month: 'short',
+                year: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+                hour12: false
+            });
+            document.getElementById('jakarta-time').textContent = now.toLocaleString('id-ID', {
+                day: '2-digit',
+                month: 'short',
+                year: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+                hour12: false,
+                timeZone: 'Asia/Jakarta'
+            });
+        }, 1000);
+    </script>
+</body>
+</html>

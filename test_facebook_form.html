@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Facebook Form</title>
+    <script>
+        function testForm() {
+            const formData = {
+                platform: "facebook",
+                account_name: "Test Frontend Form",
+                gmt: "GMT+7",
+                currency: "IDR", 
+                delivery_method: "BM_ID",
+                bm_id_or_email: "12345678901234567",
+                notes: "Test dari frontend form"
+            };
+
+            fetch('https://admin-proof-fix.preview.emergentagent.com/api/accounts/request', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': 'Bearer ' + localStorage.getItem('token')
+                },
+                body: JSON.stringify(formData)
+            })
+            .then(response => response.json())
+            .then(data => {
+                console.log('Success:', data);
+                document.getElementById('result').innerHTML = 'Success: ' + JSON.stringify(data);
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                document.getElementById('result').innerHTML = 'Error: ' + error;
+            });
+        }
+
+        // Test login first
+        function login() {
+            fetch('https://admin-proof-fix.preview.emergentagent.com/api/auth/login', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    username: 'testuser',
+                    password: 'password123'
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                localStorage.setItem('token', data.access_token);
+                document.getElementById('loginResult').innerHTML = 'Login success! Token stored.';
+            })
+            .catch(error => {
+                console.error('Login error:', error);
+                document.getElementById('loginResult').innerHTML = 'Login error: ' + error;
+            });
+        }
+    </script>
+</head>
+<body>
+    <h1>Test Facebook Form API</h1>
+    <button onclick="login()">Login First</button>
+    <div id="loginResult"></div>
+    <br><br>
+    <button onclick="testForm()">Test Facebook Form</button>
+    <div id="result"></div>
+</body>
+</html>

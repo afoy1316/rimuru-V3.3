@@ -1,0 +1,1320 @@
+import React, { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
+import axios from "axios";
+import { Button } from "../ui/button";
+import { Card, CardContent } from "../ui/card";
+import { Badge } from "../ui/badge";
+import { Input } from "../ui/input";
+import { Label } from "../ui/label";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../ui/dialog";
+import { toast } from "sonner";
+import AuthenticatedImage from "../ui/AuthenticatedImage";
+import { Eye, Download, Check, X, XCircle, RefreshCw, FileText } from "lucide-react";
+
+const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
+
+const TopUpManagement = () => {
+  const navigate = useNavigate();
+  const [loading, setLoading] = useState(true);
+  const [allRequests, setAllRequests] = useState([]);
+  const [filteredRequests, setFilteredRequests] = useState([]);
+  const [selectedRequest, setSelectedRequest] = useState(null);
+  const [detailsModalOpen, setDetailsModalOpen] = useState(false);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [processing, setProcessing] = useState(false);
+  
+  // For wallet transfer verification uploads
+  const [spendLimitProof, setSpendLimitProof] = useState(null);
+  const [budgetAspireProof, setBudgetAspireProof] = useState(null);
+  
+  // For account-specific proof uploads (per account in bulk top-up)
+  const [accountProofs, setAccountProofs] = useState({}); // {accountId: {spend_limit: File, budget_aspire: File}}
+  const [uploadingAccountProof, setUploadingAccountProof] = useState({}); // {accountId_proofType: boolean}
+  
+  // Auto-refresh state
+  const [lastRefresh, setLastRefresh] = useState(new Date());
+  
+  // Full image view modal
+  const [fullImageView, setFullImageView] = useState(null);
+
+  // Pagination
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
+
+  useEffect(() => {
+    fetchAllRequests();
+    
+    // Auto-refresh every 30 seconds - ONLY when modal is closed and not processing
+    const intervalId = setInterval(() => {
+      // Don't refresh if modal is open or processing/uploading
+      if (!detailsModalOpen && !processing && Object.keys(uploadingAccountProof).length === 0) {
+        fetchAllRequests();
+      }
+    }, 30000); // 30 seconds
+    
+    // Cleanup interval on unmount
+    return () => clearInterval(intervalId);
+  }, [detailsModalOpen, processing, uploadingAccountProof]);
+
+  // Event-driven refresh: Listen for notifications and refresh immediately
+  useEffect(() => {
+    const handleNotification = (event) => {
+      if (event.detail && event.detail.type) {
+        const notifType = event.detail.type;
+        const title = event.detail.title || '';
+        
+        // Refresh if notification is related to top-up, wallet, or transfer
+        if (notifType === 'topup_request' || 
+            notifType === 'payment_verification' ||
+            notifType === 'wallet_topup' ||
+            notifType === 'wallet_transfer' ||
+            notifType === 'wallet_transfer_approved' ||
+            notifType === 'wallet_transfer_rejected' ||
+            title.includes('Top') || 
+            title.includes('Transfer') ||
+            title.includes('Wallet')) {
+          
+          console.log('[TopUpManagement] Notification received, refreshing data...', notifType);
+          
+          // Refresh after small delay to ensure backend is updated
+          setTimeout(() => {
+            fetchAllRequests();
+          }, 1000);
+        }
+      }
+    };
+
+    // Listen for notification events
+    window.addEventListener('newNotification', handleNotification);
+    
+    return () => {
+      window.removeEventListener('newNotification', handleNotification);
+    };
+  }, []);
+
+  useEffect(() => {
+    filterRequests();
+  }, [allRequests, searchTerm, statusFilter]);
+
+  const fetchAllRequests = async () => {
+    try {
+      setLoading(true);
+      const token = localStorage.getItem("admin_token");
+      
+      // Fetch all 3 types of requests in parallel
+      const [accountTopUps, walletTopUps, walletTransfers] = await Promise.all([
+        axios.get(`${BACKEND_URL}/api/admin/payments`, {
+          headers: { Authorization: `Bearer ${token}` }
+        }),
+        axios.get(`${BACKEND_URL}/api/admin/wallet-topup-requests`, {
+          headers: { Authorization: `Bearer ${token}` }
+        }),
+        axios.get(`${BACKEND_URL}/api/admin/wallet-transfer-requests`, {
+          headers: { Authorization: `Bearer ${token}` }
+        })
+      ]);
+
+      // Combine and normalize all requests
+      const combined = [
+        ...accountTopUps.data.map(req => ({
+          ...req,
+          type: 'account_topup',
+          typeLabel: 'Account Top-Up',
+          typeColor: 'bg-blue-100 text-blue-800',
+          created_at: req.created_at || req.timestamp
+        })),
+        ...walletTopUps.data.map(req => ({
+          ...req,
+          type: 'wallet_topup',
+          typeLabel: 'Wallet Top-Up',
+          typeColor: 'bg-green-100 text-green-800',
+          created_at: req.created_at || req.submitted_at
+        })),
+        ...walletTransfers.data.map(req => ({
+          ...req,
+          type: 'wallet_transfer',
+          typeLabel: 'Wallet Transfer',
+          typeColor: 'bg-purple-100 text-purple-800',
+          created_at: req.created_at || req.request_date,
+          target_account_type: req.target_account?.platform,
+          target_account_id: req.target_account?.account_id  // Platform ID, not UUID
+        }))
+      ];
+
+      // Sort by created_at (newest first)
+      combined.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+      setAllRequests(combined);
+      setLastRefresh(new Date());
+    } catch (error) {
+      console.error("Error fetching requests:", error);
+      if (error.response?.status !== 401) { // Don't show error for auth issues
+        toast.error("Gagal memuat data permintaan");
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const filterRequests = () => {
+    let filtered = [...allRequests];
+
+    // Filter by status
+    if (statusFilter !== "all") {
+      filtered = filtered.filter(req => req.status === statusFilter);
+    }
+
+    // Filter by search term
+    if (searchTerm) {
+      filtered = filtered.filter(req => 
+        req.user?.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        req.user?.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        req.account_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        req.target_account_name?.toLowerCase().includes(searchTerm.toLowerCase())
+      );
+    }
+
+    setFilteredRequests(filtered);
+    setCurrentPage(1); // Reset to first page when filter changes
+  };
+
+  const handleViewDetails = (request) => {
+    setSelectedRequest(request);
+    setAccountProofs({}); // Reset account proofs
+    setDetailsModalOpen(true);
+  };
+
+  // Upload proof for specific account
+  const handleUploadAccountProof = async (accountId, proofType, file) => {
+    try {
+      const uploadKey = `${accountId}_${proofType}`;
+      setUploadingAccountProof(prev => ({ ...prev, [uploadKey]: true }));
+      
+      const token = localStorage.getItem("admin_token");
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('account_id', accountId);
+      formData.append('proof_type', proofType);
+
+      const response = await axios.post(
+        `${BACKEND_URL}/api/admin/payments/${selectedRequest.id}/upload-account-proof`,
+        formData,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'multipart/form-data'
+          }
+        }
+      );
+
+      // SUCCESS! Update local state with the file URL
+      const fileUrl = `${BACKEND_URL}/api/admin/payments/${selectedRequest.id}/account/${accountId}/${proofType === 'spend_limit_proof' ? 'spend_limit_proof' : 'budget_aspire_proof'}`;
+      
+      toast.success(`✓ Bukti berhasil diupload!`);
+      
+      // Force refresh the request to get updated data from backend
+      setTimeout(() => {
+        fetchAllRequests();
+      }, 500);
+      
+    } catch (error) {
+      console.error("Error uploading account proof:", error);
+      // Show the actual error to user
+      const errorMsg = error.response?.data?.detail || error.message || "Gagal upload bukti";
+      toast.error(`❌ Upload gagal: ${errorMsg}`);
+      
+      // If 401, tell user to re-login
+      if (error.response?.status === 401) {
+        toast.error("Session expired. Silakan logout dan login kembali.");
+      }
+    } finally {
+      const uploadKey = `${accountId}_${proofType}`;
+      setUploadingAccountProof(prev => {
+        const newState = { ...prev };
+        delete newState[uploadKey];
+        return newState;
+      });
+    }
+  };
+
+  const handleVerifyAccountTopUp = async (status) => {
+    try {
+      setProcessing(true);
+      const token = localStorage.getItem("admin_token");
+      
+      // For verification, check that ALL accounts have required proofs uploaded
+      if (status === 'verified' && selectedRequest.accounts) {
+        const missingProofs = [];
+        selectedRequest.accounts.forEach(acc => {
+          const accountPlatform = acc.account_platform?.toLowerCase() || '';
+          const accountName = acc.account_name || 'Unknown';
+          
+          // Spend limit proof required for ALL platforms
+          if (!acc.spend_limit_proof_url) {
+            missingProofs.push(`${accountName}: Spend limit proof`);
+          }
+          
+          // Budget aspire proof ONLY required for Facebook
+          if (accountPlatform === 'facebook' && !acc.budget_aspire_proof_url) {
+            missingProofs.push(`${accountName}: Budget aspire proof`);
+          }
+        });
+        
+        if (missingProofs.length > 0) {
+          toast.error(`Missing proofs: ${missingProofs.join(', ')}`);
+          setProcessing(false);
+          return;
+        }
+      }
+      
+      // Verify the request (backend will check proofs in accounts array)
+      await axios.put(
+        `${BACKEND_URL}/api/admin/payments/${selectedRequest.id}/verify`,
+        { status, admin_notes: "" },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      toast.success(`Top-up ${status === 'verified' ? 'diverifikasi' : 'ditolak'}`);
+      setDetailsModalOpen(false);
+      setAccountProofs({});
+      fetchAllRequests();
+    } catch (error) {
+      console.error("Error updating status:", error);
+      toast.error(error.response?.data?.detail || "Gagal memperbarui status");
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  const handleVerifyWalletTopUp = async (status) => {
+    try {
+      setProcessing(true);
+      const token = localStorage.getItem("admin_token");
+      
+      await axios.put(
+        `${BACKEND_URL}/api/admin/wallet-topup-requests/${selectedRequest.id}/status`,
+        { status },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      toast.success(`Wallet top-up ${status === 'verified' ? 'diverifikasi' : 'ditolak'}`);
+      setDetailsModalOpen(false);
+      fetchAllRequests();
+    } catch (error) {
+      console.error("Error updating status:", error);
+      toast.error("Gagal memperbarui status");
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  const handleVerifyWalletTransfer = async (status) => {
+    try {
+      setProcessing(true);
+      const token = localStorage.getItem("admin_token");
+      
+      let spendLimitPath = null;
+      let budgetAspirePath = null;
+      
+      // If approving, need to upload verification files first
+      if (status === 'approved' && selectedRequest.type === 'wallet_transfer') {
+        if (!spendLimitProof || !budgetAspireProof) {
+          toast.error("Harap upload semua bukti verifikasi terlebih dahulu");
+          setProcessing(false);
+          return;
+        }
+
+        // Upload spend_limit_proof and get file path
+        const spendFormData = new FormData();
+        spendFormData.append('file', spendLimitProof);
+        spendFormData.append('type', 'spend_limit_proof');
+
+        const spendUploadResponse = await axios.post(
+          `${BACKEND_URL}/api/admin/wallet-transfers/${selectedRequest.id}/upload-verification-files`,
+          spendFormData,
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+              'Content-Type': 'multipart/form-data'
+            }
+          }
+        );
+        spendLimitPath = spendUploadResponse.data.file_path;
+
+        // Upload budget_aspire_proof and get file path
+        const budgetFormData = new FormData();
+        budgetFormData.append('file', budgetAspireProof);
+        budgetFormData.append('type', 'budget_aspire_proof');
+
+        const budgetUploadResponse = await axios.post(
+          `${BACKEND_URL}/api/admin/wallet-transfers/${selectedRequest.id}/upload-verification-files`,
+          budgetFormData,
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+              'Content-Type': 'multipart/form-data'
+            }
+          }
+        );
+        budgetAspirePath = budgetUploadResponse.data.file_path;
+      }
+      
+      // Update status with file paths
+      await axios.put(
+        `${BACKEND_URL}/api/admin/wallet-transfer-requests/${selectedRequest.id}/status`,
+        { 
+          status, 
+          admin_notes: "",
+          spend_limit_proof_path: spendLimitPath,
+          budget_aspire_proof_path: budgetAspirePath
+        },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      toast.success(`Transfer ${status === 'approved' ? 'disetujui' : 'ditolak'}`);
+      setDetailsModalOpen(false);
+      setSpendLimitProof(null);
+      setBudgetAspireProof(null);
+      fetchAllRequests();
+    } catch (error) {
+      console.error("Error updating status:", error);
+      toast.error(error.response?.data?.detail || "Gagal memperbarui status");
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  const downloadProof = async (url, filename) => {
+    try {
+      const token = localStorage.getItem("admin_token");
+      const response = await fetch(url, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      if (!response.ok) throw new Error('Download failed');
+      
+      const blob = await response.blob();
+      const downloadUrl = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      link.download = filename || 'proof.jpg';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(downloadUrl);
+      
+      toast.success("File berhasil didownload");
+    } catch (error) {
+      console.error("Download error:", error);
+      toast.error("Gagal download file");
+    }
+  };
+
+  const downloadInvoice = async (selectedRequest) => {
+    try {
+      const token = localStorage.getItem("admin_token");
+      
+      const invoiceUrl = selectedRequest.type === 'account_topup'
+        ? `${BACKEND_URL}/api/admin/topup-request/${selectedRequest.id}/invoice`
+        : selectedRequest.type === 'wallet_topup'
+        ? `${BACKEND_URL}/api/admin/wallet-topup-request/${selectedRequest.id}/invoice`
+        : selectedRequest.type === 'wallet_transfer'
+        ? `${BACKEND_URL}/api/admin/wallet-transfer-request/${selectedRequest.id}/invoice`
+        : null;
+      
+      if (!invoiceUrl) {
+        toast.error("Invoice tidak tersedia");
+        return;
+      }
+
+      toast.info("Mengunduh invoice...");
+      
+      const response = await fetch(invoiceUrl, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      if (!response.ok) throw new Error('Download invoice failed');
+      
+      const blob = await response.blob();
+      const downloadUrl = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      link.download = `invoice_${selectedRequest.reference_code || selectedRequest.id}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(downloadUrl);
+      
+      toast.success("Invoice berhasil didownload");
+    } catch (error) {
+      console.error("Download invoice error:", error);
+      toast.error("Gagal download invoice");
+    }
+  };
+
+  const getStatusBadge = (status) => {
+    const statusConfig = {
+      pending: { label: "Pending", color: "bg-yellow-100 text-yellow-800" },
+      proof_uploaded: { label: "Proof Uploaded", color: "bg-orange-100 text-orange-800" },
+      verified: { label: "Verified", color: "bg-green-100 text-green-800" },
+      approved: { label: "Approved", color: "bg-green-100 text-green-800" },
+      rejected: { label: "Rejected", color: "bg-red-100 text-red-800" },
+      completed: { label: "Completed", color: "bg-blue-100 text-blue-800" }
+    };
+    
+    const config = statusConfig[status] || { label: status, color: "bg-gray-100 text-gray-800" };
+    return <Badge className={config.color}>{config.label}</Badge>;
+  };
+
+  const formatCurrency = (amount, currency = "IDR") => {
+    if (currency === "IDR") {
+      return `Rp ${parseFloat(amount).toLocaleString('id-ID')}`;
+    }
+    return `${currency} ${parseFloat(amount).toLocaleString('en-US')}`;
+  };
+
+  const formatDate = (dateString) => {
+    if (!dateString) return '-';
+    return new Date(dateString).toLocaleString('id-ID', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
+
+  const formatPaymentMethod = (method) => {
+    if (!method) return '-';
+    const methodMap = {
+      'bank_bri': 'Bank BRI',
+      'bank_bca': 'Bank BCA',
+      'bank_mandiri': 'Bank Mandiri',
+      'bank_bni': 'Bank BNI',
+      'usdt_trc20': 'USDT TRC20',
+      'usdt_erc20': 'USDT ERC20'
+    };
+    return methodMap[method.toLowerCase()] || method.toUpperCase();
+  };
+
+  // Pagination
+  const indexOfLastItem = currentPage * itemsPerPage;
+  const indexOfFirstItem = indexOfLastItem - itemsPerPage;
+  const currentItems = filteredRequests.slice(indexOfFirstItem, indexOfLastItem);
+  const totalPages = Math.ceil(filteredRequests.length / itemsPerPage);
+
+  const renderDetailsModal = () => {
+    if (!selectedRequest) return null;
+
+    return (
+      <Dialog open={detailsModalOpen} onOpenChange={setDetailsModalOpen}>
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <div className="flex items-center justify-between">
+              <DialogTitle className="flex items-center gap-2">
+                <Badge className={selectedRequest.typeColor}>{selectedRequest.typeLabel}</Badge>
+                {getStatusBadge(selectedRequest.status)}
+              </DialogTitle>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setDetailsModalOpen(false)}
+                className="h-8 w-8 p-0 hover:bg-gray-100 rounded-full"
+              >
+                <XCircle className="h-5 w-5 text-gray-500" />
+              </Button>
+            </div>
+          </DialogHeader>
+
+          <div className="space-y-6">
+            {/* User Info */}
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label className="text-gray-600">User</Label>
+                <p className="font-medium">{selectedRequest.user?.name || '-'}</p>
+                <p className="text-sm text-gray-500">{selectedRequest.user?.email || '-'}</p>
+              </div>
+              <div>
+                <Label className="text-gray-600">Tanggal</Label>
+                <p className="font-medium">{formatDate(selectedRequest.created_at)}</p>
+              </div>
+            </div>
+            
+            {/* Verified By Admin */}
+            {selectedRequest.verified_by && (
+              <div className="p-3 bg-green-50 border border-green-200 rounded">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label className="text-gray-600 text-sm">Diproses Oleh</Label>
+                    <p className="font-medium text-green-800">{selectedRequest.verified_by?.name || selectedRequest.verified_by?.username || '-'}</p>
+                  </div>
+                  {selectedRequest.verified_at && (
+                    <div>
+                      <Label className="text-gray-600 text-sm">Tanggal Verifikasi</Label>
+                      <p className="font-medium text-green-800">{formatDate(selectedRequest.verified_at)}</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Request Details */}
+            {selectedRequest.type === 'account_topup' && (
+              <>
+                {/* Display Accounts Breakdown */}
+                {selectedRequest.accounts && selectedRequest.accounts.length > 0 ? (
+                  <div className="space-y-4">
+                    <div className="bg-blue-50 p-3 rounded">
+                      <h4 className="font-semibold text-blue-900 mb-2">
+                        Breakdown Akun ({selectedRequest.accounts.length} akun)
+                      </h4>
+                    </div>
+                    
+                    {selectedRequest.accounts.map((account, index) => (
+                      <div key={index} className="border border-gray-200 rounded p-4 bg-gray-50">
+                        <div className="flex justify-between items-start mb-3">
+                          <h5 className="font-semibold text-gray-900">Akun {index + 1}</h5>
+                          <div className="text-right">
+                            <div className="text-lg font-bold text-blue-600">
+                              {formatCurrency(account.amount, selectedRequest.currency)}
+                            </div>
+                            <div className="text-xs text-gray-500">
+                              Fee: {formatCurrency(account.fee_amount || 0, selectedRequest.currency)}
+                            </div>
+                          </div>
+                        </div>
+                        
+                        <div className="grid grid-cols-2 gap-3 text-sm">
+                          <div>
+                            <Label className="text-gray-600 text-xs">Nama Akun</Label>
+                            <p className="font-medium">{account.account_name || 'Unknown'}</p>
+                          </div>
+                          <div>
+                            <Label className="text-gray-600 text-xs">Platform</Label>
+                            <p className="font-medium capitalize">{account.account_platform || 'Unknown'}</p>
+                          </div>
+                          <div className="col-span-2">
+                            <Label className="text-gray-600 text-xs">ID Akun Iklan</Label>
+                            <p className="font-mono text-xs bg-white p-1 rounded border">
+                              {account.platform_account_id || account.account_id}
+                            </p>
+                          </div>
+                        </div>
+                        
+                        {/* Account-specific proofs upload section */}
+                        <div className="mt-3 pt-3 border-t border-gray-200 space-y-3">
+                          <Label className="text-gray-700 font-semibold text-sm mb-2 block">
+                            Bukti Admin untuk Akun Ini:
+                          </Label>
+                          
+                          {/* Spend Limit Proof Upload - Required for ALL platforms */}
+                          <div>
+                            <Label className="text-xs text-gray-600">1. Bukti Update Batas Pengeluaran *</Label>
+                            {account.spend_limit_proof_url ? (
+                              <div className="space-y-2">
+                                <div className="relative aspect-video bg-gray-100 rounded overflow-hidden border">
+                                  <img
+                                    src={`${BACKEND_URL}/${account.spend_limit_proof_url}`}
+                                    alt="Spend Limit Proof"
+                                    className="w-full h-full object-contain"
+                                  />
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <Badge className="bg-green-100 text-green-700">✓ Sudah Upload</Badge>
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => setFullImageView(`${BACKEND_URL}/${account.spend_limit_proof_url}`)}
+                                    className="text-xs h-7"
+                                  >
+                                    <Eye className="w-3 h-3 mr-1" /> Lihat Full
+                                  </Button>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="mt-1">
+                                <Input
+                                  type="file"
+                                  accept="image/*,application/pdf"
+                                  onChange={(e) => {
+                                    if (e.target.files[0]) {
+                                      handleUploadAccountProof(account.account_id, 'spend_limit_proof', e.target.files[0]);
+                                      e.target.value = '';
+                                    }
+                                  }}
+                                  className="text-xs"
+                                  disabled={uploadingAccountProof[`${account.account_id}_spend_limit_proof`]}
+                                />
+                                {uploadingAccountProof[`${account.account_id}_spend_limit_proof`] && (
+                                  <p className="text-xs text-blue-600 mt-1">Uploading...</p>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                          
+                          {/* Budget Aspire Proof Upload - ONLY for Facebook */}
+                          {account.account_platform?.toLowerCase() === 'facebook' && (
+                            <div>
+                              <Label className="text-xs text-gray-600">2. Bukti Update Budget Aspire *</Label>
+                              {account.budget_aspire_proof_url ? (
+                                <div className="space-y-2">
+                                  <div className="relative aspect-video bg-gray-100 rounded overflow-hidden border">
+                                    <img
+                                      src={`${BACKEND_URL}/${account.budget_aspire_proof_url}`}
+                                      alt="Budget Aspire Proof"
+                                      className="w-full h-full object-contain"
+                                    />
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <Badge className="bg-green-100 text-green-700">✓ Sudah Upload</Badge>
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={() => setFullImageView(`${BACKEND_URL}/${account.budget_aspire_proof_url}`)}
+                                      className="text-xs h-7"
+                                    >
+                                      <Eye className="w-3 h-3 mr-1" /> Lihat Full
+                                    </Button>
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="mt-1">
+                                  <Input
+                                    type="file"
+                                    accept="image/*,application/pdf"
+                                    onChange={(e) => {
+                                      if (e.target.files[0]) {
+                                        handleUploadAccountProof(account.account_id, 'budget_aspire_proof', e.target.files[0]);
+                                        e.target.value = '';
+                                      }
+                                    }}
+                                    className="text-xs"
+                                    disabled={uploadingAccountProof[`${account.account_id}_budget_aspire_proof`]}
+                                  />
+                                  {uploadingAccountProof[`${account.account_id}_budget_aspire_proof`] && (
+                                    <p className="text-xs text-blue-600 mt-1">Uploading...</p>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                          
+                          {/* Info for non-Facebook platforms */}
+                          {account.account_platform?.toLowerCase() !== 'facebook' && (
+                            <div className="text-xs text-gray-500 italic mt-2">
+                              ℹ️ {account.account_platform} hanya memerlukan bukti update batas pengeluaran
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  // Fallback for old single-account structure
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <Label className="text-gray-600">Account Name</Label>
+                      <p className="font-medium">{selectedRequest.account_name}</p>
+                    </div>
+                    <div>
+                      <Label className="text-gray-600">Platform</Label>
+                      <p className="font-medium">{selectedRequest.account_type}</p>
+                    </div>
+                  </div>
+                )}
+                
+                {/* Show Account ID if exists (for old structure) */}
+                {selectedRequest.account_id && !selectedRequest.accounts && (
+                  <div>
+                    <Label className="text-gray-600">ID Akun Iklan</Label>
+                    <p className="font-medium font-mono text-sm bg-gray-50 p-2 rounded border">
+                      {selectedRequest.account_id}
+                    </p>
+                  </div>
+                )}
+                
+                <div className="grid grid-cols-2 gap-4 mt-4 pt-4 border-t">
+                  <div>
+                    <Label className="text-gray-600">Total Semua Akun</Label>
+                    <p className="font-medium text-lg text-green-600">{formatCurrency(selectedRequest.total_amount, selectedRequest.currency)}</p>
+                  </div>
+                  <div>
+                    <Label className="text-gray-600">Total Fee</Label>
+                    <p className="font-medium text-lg">{formatCurrency(selectedRequest.total_fee || 0, selectedRequest.currency)}</p>
+                  </div>
+                </div>
+
+                {/* Payment Proof */}
+                {selectedRequest.payment_proof?.uploaded && (
+                  <div className="mt-4">
+                    <Label className="text-gray-600 mb-2 block">Bukti Pembayaran Client</Label>
+                    <div className="relative aspect-video bg-gray-100 rounded overflow-hidden">
+                      <AuthenticatedImage
+                        src={`${BACKEND_URL}/api/admin/payments/${selectedRequest.id}/proof-file`}
+                        alt="Payment Proof"
+                        className="w-full h-full object-contain"
+                      />
+                    </div>
+                    <div className="flex gap-2 mt-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setFullImageView(`${BACKEND_URL}/api/admin/payments/${selectedRequest.id}/proof-file`)}
+                      >
+                        <Eye className="w-4 h-4 mr-1" /> View Full
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => downloadProof(
+                          `${BACKEND_URL}/api/admin/payments/${selectedRequest.id}/proof-file`,
+                          `payment_proof_${selectedRequest.id}.jpg`
+                        )}
+                      >
+                        <Download className="w-4 h-4 mr-1" /> Download
+                      </Button>
+                    </div>
+                  </div>
+                )}
+                
+                {/* Show message if payment proof not uploaded yet */}
+                {!selectedRequest.payment_proof?.uploaded && (
+                  <div className="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded">
+                    <p className="text-sm text-yellow-700">
+                      ⏳ Client belum upload bukti pembayaran
+                    </p>
+                  </div>
+                )}
+
+                {/* Verification Proofs - Show if already uploaded by admin */}
+                {selectedRequest.spend_limit_proof_url && (
+                  <div>
+                    <Label className="text-gray-600 mb-2 block">Bukti Update Batas Pengeluaran (Uploaded)</Label>
+                    <div className="relative aspect-video bg-gray-100 rounded overflow-hidden">
+                      <AuthenticatedImage
+                        src={`${BACKEND_URL}/api/admin/payments/${selectedRequest.id}/spend_limit_proof`}
+                        alt="Spend Limit Proof"
+                        className="w-full h-full object-contain"
+                      />
+                    </div>
+                    <div className="flex gap-2 mt-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setFullImageView(`${BACKEND_URL}/api/admin/payments/${selectedRequest.id}/spend_limit_proof`)}
+                      >
+                        <Eye className="w-4 h-4 mr-1" /> View Full
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => downloadProof(
+                          `${BACKEND_URL}/api/admin/payments/${selectedRequest.id}/spend_limit_proof`,
+                          `spend_limit_${selectedRequest.id}.jpg`
+                        )}
+                      >
+                        <Download className="w-4 h-4 mr-1" /> Download
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
+                {selectedRequest.budget_aspire_proof_url && (
+                  <div>
+                    <Label className="text-gray-600 mb-2 block">Bukti Update Budget Aspire (Uploaded)</Label>
+                    <div className="relative aspect-video bg-gray-100 rounded overflow-hidden">
+                      <AuthenticatedImage
+                        src={`${BACKEND_URL}/api/admin/payments/${selectedRequest.id}/budget_aspire_proof`}
+                        alt="Budget Aspire Proof"
+                        className="w-full h-full object-contain"
+                      />
+                    </div>
+                    <div className="flex gap-2 mt-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setFullImageView(`${BACKEND_URL}/api/admin/payments/${selectedRequest.id}/budget_aspire_proof`)}
+                      >
+                        <Eye className="w-4 h-4 mr-1" /> View Full
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => downloadProof(
+                          `${BACKEND_URL}/api/admin/payments/${selectedRequest.id}/budget_aspire_proof`,
+                          `budget_aspire_${selectedRequest.id}.jpg`
+                        )}
+                      >
+                        <Download className="w-4 h-4 mr-1" /> Download
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+
+            {selectedRequest.type === 'wallet_topup' && (
+              <>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label className="text-gray-600">Nominal</Label>
+                    <p className="font-medium text-lg">{formatCurrency(selectedRequest.amount, selectedRequest.currency)}</p>
+                  </div>
+                  <div>
+                    <Label className="text-gray-600">Metode Pembayaran</Label>
+                    <p className="font-medium">{formatPaymentMethod(selectedRequest.payment_method)}</p>
+                  </div>
+                </div>
+
+                {/* Payment Proof */}
+                {selectedRequest.payment_proof?.uploaded && (
+                  <div>
+                    <Label className="text-gray-600 mb-2 block">Bukti Pembayaran</Label>
+                    <div className="relative aspect-video bg-gray-100 rounded overflow-hidden">
+                      <AuthenticatedImage
+                        src={`${BACKEND_URL}/api/admin/wallet-topup-requests/${selectedRequest.id}/payment-proof`}
+                        alt="Wallet Payment Proof"
+                        className="w-full h-full object-contain"
+                      />
+                    </div>
+                    <div className="flex gap-2 mt-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setFullImageView(`${BACKEND_URL}/api/admin/wallet-topup-requests/${selectedRequest.id}/payment-proof`)}
+                      >
+                        <Eye className="w-4 h-4 mr-1" /> View Full
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => downloadProof(
+                          `${BACKEND_URL}/api/admin/wallet-topup-requests/${selectedRequest.id}/payment-proof`,
+                          `wallet_payment_${selectedRequest.id}.jpg`
+                        )}
+                      >
+                        <Download className="w-4 h-4 mr-1" /> Download
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+
+            {selectedRequest.type === 'wallet_transfer' && (
+              <>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label className="text-gray-600">Target Account</Label>
+                    <p className="font-medium">{selectedRequest.target_account_name}</p>
+                    <p className="text-sm text-gray-500">{selectedRequest.target_account_type}</p>
+                    {selectedRequest.target_account_id && (
+                      <p className="text-xs text-gray-500 font-mono mt-1">
+                        ID: {selectedRequest.target_account_id}
+                      </p>
+                    )}
+                  </div>
+                  <div>
+                    <Label className="text-gray-600">Nominal Transfer</Label>
+                    <p className="font-medium text-lg">{formatCurrency(selectedRequest.amount, selectedRequest.currency)}</p>
+                  </div>
+                </div>
+
+                {/* Upload Section for Pending Transfers */}
+                {selectedRequest.status === 'pending' && (
+                  <div className="space-y-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
+                    <h3 className="font-medium text-blue-900">Upload Bukti Verifikasi</h3>
+                    
+                    <div>
+                      <Label htmlFor="spend_limit_proof">Bukti Update Batas Pengeluaran *</Label>
+                      <Input
+                        id="spend_limit_proof"
+                        type="file"
+                        accept="image/*"
+                        onChange={(e) => setSpendLimitProof(e.target.files[0])}
+                        className="mt-1"
+                      />
+                      {spendLimitProof && (
+                        <p className="text-sm text-green-600 mt-1">✓ {spendLimitProof.name}</p>
+                      )}
+                    </div>
+
+                    <div>
+                      <Label htmlFor="budget_aspire_proof">Bukti Update Budget Aspire *</Label>
+                      <Input
+                        id="budget_aspire_proof"
+                        type="file"
+                        accept="image/*"
+                        onChange={(e) => setBudgetAspireProof(e.target.files[0])}
+                        className="mt-1"
+                      />
+                      {budgetAspireProof && (
+                        <p className="text-sm text-green-600 mt-1">✓ {budgetAspireProof.name}</p>
+                      )}
+                    </div>
+
+                    <p className="text-sm text-gray-600">
+                      * Harap upload kedua bukti sebelum approve transfer
+                    </p>
+                  </div>
+                )}
+
+                {/* Verification Proofs - Only show if already uploaded */}
+                {selectedRequest.spend_limit_proof_url && (
+                  <div>
+                    <Label className="text-gray-600 mb-2 block">Bukti Update Batas Pengeluaran</Label>
+                    <div className="relative aspect-video bg-gray-100 rounded overflow-hidden">
+                      <img
+                        src={`${BACKEND_URL}/${selectedRequest.spend_limit_proof_url}`}
+                        alt="Spend Limit Proof"
+                        className="w-full h-full object-contain"
+                      />
+                    </div>
+                    <div className="flex gap-2 mt-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setFullImageView(`${BACKEND_URL}/${selectedRequest.spend_limit_proof_url}`)}
+                      >
+                        <Eye className="w-4 h-4 mr-1" /> View Full
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => downloadProof(
+                          `${BACKEND_URL}/${selectedRequest.spend_limit_proof_url}`,
+                          `spend_limit_${selectedRequest.id}.jpg`
+                        )}
+                      >
+                        <Download className="w-4 h-4 mr-1" /> Download
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
+                {selectedRequest.budget_aspire_proof_url && (
+                  <div>
+                    <Label className="text-gray-600 mb-2 block">Bukti Update Budget Aspire</Label>
+                    <div className="relative aspect-video bg-gray-100 rounded overflow-hidden">
+                      <img
+                        src={`${BACKEND_URL}/${selectedRequest.budget_aspire_proof_url}`}
+                        alt="Budget Aspire Proof"
+                        className="w-full h-full object-contain"
+                      />
+                    </div>
+                    <div className="flex gap-2 mt-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setFullImageView(`${BACKEND_URL}/${selectedRequest.budget_aspire_proof_url}`)}
+                      >
+                        <Eye className="w-4 h-4 mr-1" /> View Full
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => downloadProof(
+                          `${BACKEND_URL}/api/admin/wallet-transfers/${selectedRequest.id}/proof/budget_aspire`,
+                          `budget_aspire_${selectedRequest.id}.jpg`
+                        )}
+                      >
+                        <Download className="w-4 h-4 mr-1" /> Download
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* Action Buttons */}
+            <div className="flex flex-col gap-2 pt-4 border-t">
+              {/* Download Invoice Button - Available for all requests */}
+              <Button
+                variant="outline"
+                onClick={() => downloadInvoice(selectedRequest)}
+                className="w-full bg-purple-600 hover:bg-purple-700 text-white border-0"
+              >
+                <FileText className="w-4 h-4 mr-2" />
+                Download Invoice
+              </Button>
+              
+              {/* Approve/Reject or Close buttons */}
+              <div className="flex gap-2">
+                {(selectedRequest.status === 'pending' || selectedRequest.status === 'proof_uploaded') ? (
+                  <>
+                    <Button
+                      onClick={() => {
+                        if (selectedRequest.type === 'account_topup') {
+                          handleVerifyAccountTopUp('verified');
+                        } else if (selectedRequest.type === 'wallet_topup') {
+                          handleVerifyWalletTopUp('verified');
+                        } else {
+                          handleVerifyWalletTransfer('approved');
+                        }
+                      }}
+                      disabled={processing}
+                      className="flex-1 bg-green-600 hover:bg-green-700"
+                    >
+                      <Check className="w-4 h-4 mr-1" />
+                      Approve
+                    </Button>
+                    <Button
+                      variant="destructive"
+                      onClick={() => {
+                        if (selectedRequest.type === 'account_topup') {
+                          handleVerifyAccountTopUp('rejected');
+                        } else if (selectedRequest.type === 'wallet_topup') {
+                          handleVerifyWalletTopUp('rejected');
+                        } else {
+                          handleVerifyWalletTransfer('rejected');
+                        }
+                      }}
+                      disabled={processing}
+                      className="flex-1"
+                    >
+                      <X className="w-4 h-4 mr-1" />
+                      Reject
+                    </Button>
+                  </>
+                ) : (
+                  <Button
+                    variant="outline"
+                    onClick={() => setDetailsModalOpen(false)}
+                    className="flex-1"
+                  >
+                    Close
+                  </Button>
+                )}
+              </div>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    );
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="p-6 max-w-7xl mx-auto">
+      <div className="mb-6 flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900">Top Up Management</h1>
+          <p className="text-gray-600 mt-1">Kelola semua permintaan top-up dan transfer</p>
+        </div>
+        <div className="flex items-center gap-3">
+          <div className="text-sm text-gray-500">
+            Last updated: {lastRefresh.toLocaleTimeString('id-ID')}
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => fetchAllRequests()}
+            disabled={loading}
+          >
+            <RefreshCw className={`w-4 h-4 mr-1 ${loading ? 'animate-spin' : ''}`} />
+            Refresh
+          </Button>
+        </div>
+      </div>
+
+      {/* Filters */}
+      <Card className="mb-6">
+        <CardContent className="p-4">
+          <div className="flex flex-col md:flex-row gap-4">
+            <div className="flex-1">
+              <Input
+                placeholder="Cari berdasarkan nama user atau account..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
+            </div>
+            <div className="flex gap-2">
+              <Button
+                variant={statusFilter === 'all' ? 'default' : 'outline'}
+                onClick={() => setStatusFilter('all')}
+              >
+                Semua
+              </Button>
+              <Button
+                variant={statusFilter === 'pending' ? 'default' : 'outline'}
+                onClick={() => setStatusFilter('pending')}
+              >
+                Pending
+              </Button>
+              <Button
+                variant={statusFilter === 'verified' ? 'default' : 'outline'}
+                onClick={() => setStatusFilter('verified')}
+              >
+                Verified
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Requests List */}
+      <Card>
+        <CardContent className="p-0">
+          {currentItems.length === 0 ? (
+            <div className="text-center py-12 text-gray-500">
+              Tidak ada permintaan
+            </div>
+          ) : (
+            <div className="divide-y">
+              {currentItems.map((request) => (
+                <div key={`${request.type}-${request.id}`} className="p-4 hover:bg-gray-50 transition-colors">
+                  <div className="flex items-center justify-between">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Badge className={request.typeColor}>{request.typeLabel}</Badge>
+                        {getStatusBadge(request.status)}
+                      </div>
+                      <div className="flex items-center gap-4">
+                        <div>
+                          <p className="font-medium text-gray-900">{request.user?.name}</p>
+                          <p className="text-sm text-gray-500">{request.user?.email}</p>
+                        </div>
+                        {request.accounts && request.accounts.length > 0 ? (
+                          <div>
+                            <p className="text-sm font-medium text-blue-600">
+                              {request.accounts.length} akun
+                            </p>
+                            <p className="text-xs text-gray-500">
+                              {request.accounts.map(a => a.account_name).filter(Boolean).slice(0, 2).join(', ')}
+                              {request.accounts.length > 2 && '...'}
+                            </p>
+                          </div>
+                        ) : request.account_name ? (
+                          <div>
+                            <p className="text-sm text-gray-600">{request.account_name}</p>
+                            {request.account_id && (
+                              <p className="text-xs text-gray-500 font-mono">ID: {request.account_id}</p>
+                            )}
+                          </div>
+                        ) : null}
+                        {request.target_account_name && (
+                          <div>
+                            <p className="text-sm text-gray-600">{request.target_account_name}</p>
+                            {request.target_account_id && (
+                              <p className="text-xs text-gray-500 font-mono">ID: {request.target_account_id}</p>
+                            )}
+                          </div>
+                        )}
+                        <div className="text-lg font-semibold text-gray-900">
+                          {formatCurrency(
+                            request.type === 'wallet_topup' || request.type === 'wallet_transfer' 
+                              ? request.amount 
+                              : request.total_amount, 
+                            request.currency
+                          )}
+                        </div>
+                        <div className="text-sm text-gray-500">
+                          {formatDate(request.created_at)}
+                        </div>
+                      </div>
+                    </div>
+                    <Button
+                      variant="outline"
+                      onClick={() => handleViewDetails(request)}
+                    >
+                      <Eye className="w-4 h-4 mr-1" />
+                      View Details
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="flex justify-center gap-2 mt-6">
+          <Button
+            variant="outline"
+            disabled={currentPage === 1}
+            onClick={() => setCurrentPage(currentPage - 1)}
+          >
+            Previous
+          </Button>
+          <span className="flex items-center px-4 text-sm text-gray-600">
+            Page {currentPage} of {totalPages}
+          </span>
+          <Button
+            variant="outline"
+            disabled={currentPage === totalPages}
+            onClick={() => setCurrentPage(currentPage + 1)}
+          >
+            Next
+          </Button>
+        </div>
+      )}
+
+      {/* Details Modal */}
+      {renderDetailsModal()}
+      
+      {/* Full Image View Modal */}
+      {fullImageView && (
+        <Dialog open={!!fullImageView} onOpenChange={() => setFullImageView(null)}>
+          <DialogContent className="max-w-[90vw] w-full h-[90vh] p-0">
+            {/* Scrollable Image Container with Floating Controls */}
+            <div className="relative w-full h-full overflow-auto bg-gray-900 rounded-lg">
+              <div className="flex items-center justify-center min-h-full p-4">
+                <img
+                  src={fullImageView}
+                  alt="Full size proof"
+                  className="max-w-full h-auto object-contain"
+                  onError={(e) => {
+                    e.target.onerror = null;
+                    e.target.style.display = 'none';
+                    e.target.parentElement.innerHTML = '<div class="text-white text-center"><p class="text-xl mb-2">Failed to load image</p><p class="text-sm">File might not exist or is not accessible</p></div>';
+                  }}
+                />
+              </div>
+              
+              {/* Floating Close Button - Top Right with more inset */}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setFullImageView(null)}
+                className="absolute top-6 right-6 h-12 w-12 p-0 rounded-full bg-white hover:bg-gray-100 border-2 border-gray-300 shadow-xl z-20"
+                title="Close (ESC)"
+              >
+                <X className="h-6 w-6 text-gray-900" />
+              </Button>
+              
+              {/* Floating Download Button - Bottom Right */}
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  const fileName = fullImageView.split('/').pop() || 'image';
+                  downloadProof(fullImageView, `${fileName}.jpg`);
+                }}
+                className="absolute bottom-6 right-6 bg-blue-500 hover:bg-blue-600 border-0 text-white shadow-lg z-20"
+              >
+                <Download className="w-4 h-4 mr-2" /> Download
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
+    </div>
+  );
+};
+
+export default TopUpManagement;

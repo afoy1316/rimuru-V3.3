@@ -1,0 +1,214 @@
+{
+  "total_tests": 32,
+  "passed_tests": 30,
+  "failed_tests": 2,
+  "success_rate": 93.75,
+  "issues_found": [
+    {
+      "type": "AD_ACCOUNT_STATUS_SYNC_FAILURE",
+      "description": "Ad account status not synchronized with request status in step 3: request='disabled' should map to account='disabled' but got 'active'",
+      "severity": "CRITICAL",
+      "timestamp": "2025-10-07T04:49:00.941891"
+    },
+    {
+      "type": "AD_ACCOUNT_STATUS_SYNC_FAILURE",
+      "description": "Ad account status not synchronized with request status in step 4: request='rejected' should map to account='suspended' but got 'active'",
+      "severity": "CRITICAL",
+      "timestamp": "2025-10-07T04:49:01.059852"
+    }
+  ],
+  "test_results": [
+    {
+      "test_name": "Admin Login",
+      "success": true,
+      "details": "Status: 200, Expected: 200",
+      "timestamp": "2025-10-07T04:49:00.392153"
+    },
+    {
+      "test_name": "Create Test User",
+      "success": true,
+      "details": "Status: 200, Expected: 200",
+      "timestamp": "2025-10-07T04:49:00.429854"
+    },
+    {
+      "test_name": "User Login",
+      "success": true,
+      "details": "Status: 200, Expected: 200",
+      "timestamp": "2025-10-07T04:49:00.469358"
+    },
+    {
+      "test_name": "Create Request for Comprehensive Sync Test",
+      "success": true,
+      "details": "Status: 200, Expected: 200",
+      "timestamp": "2025-10-07T04:49:00.547534"
+    },
+    {
+      "test_name": "Update Request to approved",
+      "success": true,
+      "details": "Status: 200, Expected: 200",
+      "timestamp": "2025-10-07T04:49:00.586020"
+    },
+    {
+      "test_name": "Verify Request Status is approved",
+      "success": true,
+      "details": "Status: 200, Expected: 200",
+      "timestamp": "2025-10-07T04:49:00.632802"
+    },
+    {
+      "test_name": "Request Status Verification - Step 1",
+      "success": true,
+      "details": "Request status correctly updated to 'approved'",
+      "timestamp": "2025-10-07T04:49:00.633557"
+    },
+    {
+      "test_name": "Get User Accounts - Step 1",
+      "success": true,
+      "details": "Status: 200, Expected: 200",
+      "timestamp": "2025-10-07T04:49:00.665991"
+    },
+    {
+      "test_name": "Ad Account Status Verification - Step 1",
+      "success": true,
+      "details": "Ad account status correctly set to 'active'",
+      "timestamp": "2025-10-07T04:49:00.666678"
+    },
+    {
+      "test_name": "Update Request to completed",
+      "success": true,
+      "details": "Status: 200, Expected: 200",
+      "timestamp": "2025-10-07T04:49:00.705565"
+    },
+    {
+      "test_name": "Verify Request Status is completed",
+      "success": true,
+      "details": "Status: 200, Expected: 200",
+      "timestamp": "2025-10-07T04:49:00.748811"
+    },
+    {
+      "test_name": "Request Status Verification - Step 2",
+      "success": true,
+      "details": "Request status correctly updated to 'completed'",
+      "timestamp": "2025-10-07T04:49:00.749583"
+    },
+    {
+      "test_name": "Get User Accounts - Step 2",
+      "success": true,
+      "details": "Status: 200, Expected: 200",
+      "timestamp": "2025-10-07T04:49:00.784321"
+    },
+    {
+      "test_name": "Ad Account Status Verification - Step 2",
+      "success": true,
+      "details": "Ad account status correctly set to 'active'",
+      "timestamp": "2025-10-07T04:49:00.784920"
+    },
+    {
+      "test_name": "Update Request to disabled",
+      "success": true,
+      "details": "Status: 200, Expected: 200",
+      "timestamp": "2025-10-07T04:49:00.863773"
+    },
+    {
+      "test_name": "Verify Request Status is disabled",
+      "success": true,
+      "details": "Status: 200, Expected: 200",
+      "timestamp": "2025-10-07T04:49:00.903885"
+    },
+    {
+      "test_name": "Request Status Verification - Step 3",
+      "success": true,
+      "details": "Request status correctly updated to 'disabled'",
+      "timestamp": "2025-10-07T04:49:00.904558"
+    },
+    {
+      "test_name": "Get User Accounts - Step 3",
+      "success": true,
+      "details": "Status: 200, Expected: 200",
+      "timestamp": "2025-10-07T04:49:00.941245"
+    },
+    {
+      "test_name": "Ad Account Status Verification - Step 3",
+      "success": false,
+      "details": "Expected ad account status 'disabled', got 'active'",
+      "timestamp": "2025-10-07T04:49:00.941869"
+    },
+    {
+      "test_name": "Update Request to rejected",
+      "success": true,
+      "details": "Status: 200, Expected: 200",
+      "timestamp": "2025-10-07T04:49:00.979544"
+    },
+    {
+      "test_name": "Verify Request Status is rejected",
+      "success": true,
+      "details": "Status: 200, Expected: 200",
+      "timestamp": "2025-10-07T04:49:01.021607"
+    },
+    {
+      "test_name": "Request Status Verification - Step 4",
+      "success": true,
+      "details": "Request status correctly updated to 'rejected'",
+      "timestamp": "2025-10-07T04:49:01.022320"
+    },
+    {
+      "test_name": "Get User Accounts - Step 4",
+      "success": true,
+      "details": "Status: 200, Expected: 200",
+      "timestamp": "2025-10-07T04:49:01.059208"
+    },
+    {
+      "test_name": "Ad Account Status Verification - Step 4",
+      "success": false,
+      "details": "Expected ad account status 'suspended', got 'active'",
+      "timestamp": "2025-10-07T04:49:01.059834"
+    },
+    {
+      "test_name": "Get Admin Accounts for Delete Test",
+      "success": true,
+      "details": "Status: 200, Expected: 200",
+      "timestamp": "2025-10-07T04:49:01.102662"
+    },
+    {
+      "test_name": "Get Client Accounts Before Delete",
+      "success": true,
+      "details": "Status: 200, Expected: 200",
+      "timestamp": "2025-10-07T04:49:01.136468"
+    },
+    {
+      "test_name": "Delete Account",
+      "success": true,
+      "details": "Status: 200, Expected: 200",
+      "timestamp": "2025-10-07T04:49:01.174173"
+    },
+    {
+      "test_name": "Verify Admin Accounts After Delete",
+      "success": true,
+      "details": "Status: 200, Expected: 200",
+      "timestamp": "2025-10-07T04:49:01.215196"
+    },
+    {
+      "test_name": "Admin Delete Verification",
+      "success": true,
+      "details": "Account successfully deleted from admin view. Count: 23 \u2192 22",
+      "timestamp": "2025-10-07T04:49:01.215939"
+    },
+    {
+      "test_name": "Verify Client Accounts After Delete",
+      "success": true,
+      "details": "Status: 200, Expected: 200",
+      "timestamp": "2025-10-07T04:49:01.250832"
+    },
+    {
+      "test_name": "Client Delete Verification",
+      "success": true,
+      "details": "Deleted account properly filtered from client dashboard. Count: 1 \u2192 0",
+      "timestamp": "2025-10-07T04:49:01.251449"
+    },
+    {
+      "test_name": "Delete Functionality Comprehensive",
+      "success": true,
+      "details": "Successfully tested comprehensive deletion of account 'Comprehensive Sync Test 044900'",
+      "timestamp": "2025-10-07T04:49:01.251466"
+    }
+  ]
+}

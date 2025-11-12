@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Timezone Display Test</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 p-8">
+    <div class="max-w-2xl mx-auto space-y-8">
+        <h1 class="text-2xl font-bold mb-4">Transfer Request Timezone Display Test</h1>
+        
+        <!-- Before Fix -->
+        <div class="bg-white p-6 rounded-lg shadow">
+            <h2 class="text-lg font-semibold mb-4 text-red-600">BEFORE FIX (No Timezone)</h2>
+            <div class="bg-blue-50 p-4 rounded-lg">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center">
+                        <div class="w-8 h-8 p-1.5 bg-blue-600 text-white rounded-full mr-3 flex items-center justify-center">
+                            <span class="text-sm">👤</span>
+                        </div>
+                        <div>
+                            <p class="text-sm font-semibold text-gray-900">admin</p>
+                            <p class="text-xs text-gray-600">Admin</p>
+                        </div>
+                    </div>
+                    <div class="text-right">
+                        <p class="text-xs text-gray-600">Tanggal Proses:</p>
+                        <p class="text-sm font-medium text-gray-900" id="date-before">
+                            <!-- Will be filled by JS -->
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- After Fix -->
+        <div class="bg-white p-6 rounded-lg shadow">
+            <h2 class="text-lg font-semibold mb-4 text-green-600">AFTER FIX (With GMT+7 Timezone)</h2>
+            <div class="bg-blue-50 p-4 rounded-lg">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center">
+                        <div class="w-8 h-8 p-1.5 bg-blue-600 text-white rounded-full mr-3 flex items-center justify-center">
+                            <span class="text-sm">👤</span>
+                        </div>
+                        <div>
+                            <p class="text-sm font-semibold text-gray-900">admin</p>
+                            <p class="text-xs text-gray-600">Admin</p>
+                        </div>
+                    </div>
+                    <div class="text-right">
+                        <p class="text-xs text-gray-600">Tanggal Proses:</p>
+                        <p class="text-sm font-medium text-gray-900" id="date-after">
+                            <!-- Will be filled by JS -->
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="bg-blue-50 p-4 rounded-lg border border-blue-200">
+            <h3 class="font-semibold text-blue-900 mb-2">Changes Applied:</h3>
+            <ul class="text-sm text-blue-800 space-y-1">
+                <li>✅ Added <code class="bg-white px-1 rounded">timeZone: 'Asia/Jakarta'</code> for GMT+7</li>
+                <li>✅ Added <code class="bg-white px-1 rounded">timeZoneName: 'short'</code> to display timezone</li>
+                <li>✅ Now explicitly shows "GMT+7" in the date string</li>
+            </ul>
+        </div>
+    </div>
+
+    <script>
+        // Test date: October 17, 2025, 04:37
+        const testDate = new Date('2025-10-17T04:37:00Z');
+
+        // BEFORE: Without timezone
+        const beforeFormat = testDate.toLocaleString('id-ID', {
+            day: '2-digit',
+            month: 'short',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+        });
+        document.getElementById('date-before').textContent = beforeFormat;
+
+        // AFTER: With timezone
+        const afterFormat = testDate.toLocaleString('id-ID', {
+            day: '2-digit',
+            month: 'short',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+            timeZone: 'Asia/Jakarta',
+            timeZoneName: 'short'
+        });
+        document.getElementById('date-after').textContent = afterFormat;
+    </script>
+</body>
+</html>

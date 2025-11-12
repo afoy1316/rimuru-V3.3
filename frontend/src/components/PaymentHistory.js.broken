@@ -1,0 +1,456 @@
+import React, { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
+import axios from "axios";
+import { Button } from "../components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
+import { Badge } from "../components/ui/badge";
+import { Input } from "../components/ui/input";
+import { toast } from "sonner";
+import { useLanguage } from "../contexts/LanguageContext";
+import { 
+  FileText, ArrowLeft, Search, Filter, Download, 
+  CreditCard, CheckCircle2, Clock, Wallet, Upload, Eye, X, Banknote
+} from "lucide-react";
+import { formatCurrency } from '../utils/currencyFormatter';
+
+const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
+const API = `${BACKEND_URL}/api`;
+
+const PaymentHistory = () => {
+  const { t } = useLanguage();
+  const navigate = useNavigate();
+  const [payments, setPayments] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
+  const [summary, setSummary] = useState({
+    total: 0,
+    verified: 0,
+    pending: 0,
+    totalIDR: 0,
+    verifiedIDR: 0,
+    totalUSD: 0
+  });
+
+  useEffect(() => {
+    fetchPayments();
+  }, []);
+
+  const fetchPayments = async () => {
+    try {
+      setLoading(true);
+      const token = localStorage.getItem("token");
+      const response = await axios.get(`${API}/topup-requests`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setPayments(response.data);
+      calculateSummary(response.data);
+    } catch (error) {
+      console.error("Failed to fetch payments:", error);
+      toast.error(t('failedToLoadPayments'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const calculateSummary = (payments) => {
+    const summary = {
+      total: payments.length,
+      verified: payments.filter(p => p.status === 'verified' || p.status === 'approved' || p.status === 'completed').length,
+      pending: payments.filter(p => p.status === 'pending' || p.status === 'proof_uploaded').length,
+      totalIDR: 0,
+      verifiedIDR: 0,
+      totalUSD: 0
+    };
+
+    payments.forEach(payment => {
+      if (payment.currency === 'IDR') {
+        summary.totalIDR += (payment.total_amount - payment.total_fee);
+        if (payment.status === 'verified' || payment.status === 'approved' || payment.status === 'completed') {
+          summary.verifiedIDR += (payment.total_amount - payment.total_fee);
+        }
+      } else if (payment.currency === 'USD') {
+        summary.totalUSD += (payment.total_amount - payment.total_fee);
+      }
+    });
+
+    setSummary(summary);
+  };
+
+  const getStatusColor = (status) => {
+    const colors = {
+      pending: "bg-yellow-100 text-yellow-800 border-yellow-200",
+      proof_uploaded: "bg-blue-100 text-blue-800 border-blue-200",
+      verified: "bg-green-100 text-green-800 border-green-200",
+      approved: "bg-green-100 text-green-800 border-green-200",
+      completed: "bg-green-100 text-green-800 border-green-200",
+      rejected: "bg-red-100 text-red-800 border-red-200",
+    };
+    return colors[status] || "bg-gray-100 text-gray-800 border-gray-200";
+  };
+
+  const getStatusText = (status) => {
+    const texts = {
+      pending: "Menunggu",
+      proof_uploaded: "Sedang Ditinjau",
+      verified: "Terverifikasi",
+      approved: "Terverifikasi",
+      completed: "Terverifikasi",
+      rejected: "Ditolak"
+    };
+    return texts[status] || status;
+  };
+
+  const handleViewDetails = (paymentId) => {
+    // Navigate to payment confirmation page
+    navigate(`/dashboard/topup/confirm/${paymentId}`);
+  };
+
+  const handleDownloadInvoice = async (paymentId) => {
+    try {
+      toast.info('Sedang mempersiapkan invoice...');
+      const token = localStorage.getItem("token");
+      
+      // Generate invoice on frontend (simple approach)
+      const payment = payments.find(p => p.id === paymentId);
+      if (!payment) {
+        toast.error('Data transaksi tidak ditemukan');
+        return;
+      }
+
+      // Create simple text invoice (can be enhanced with PDF library later)
+      const invoiceContent = `
+INVOICE - ${payment.reference_code || payment.id.substring(0, 11)}
+========================================
+
+Transaction Details:
+--------------------
+Amount: ${formatCurrency(payment.total_amount - payment.total_fee, payment.currency)}
+Fee: ${formatCurrency(payment.total_fee, payment.currency)}
+Total: ${formatCurrency(payment.total_amount, payment.currency)}
+
+Status: ${getStatusText(payment.status)}
+Currency: ${payment.currency}
+${payment.unique_code ? `Kode Unik: +${payment.unique_code}` : ''}
+
+Date: ${new Date(payment.created_at).toLocaleString('id-ID', {
+  day: 'numeric',
+  month: 'long', 
+  year: 'numeric',
+  hour: '2-digit',
+  minute: '2-digit'
+})}
+
+${payment.accounts_count > 0 ? `Accounts: ${payment.accounts_count}` : 'Type: Wallet Top-Up'}
+
+${payment.verified_at ? `Verified: ${new Date(payment.verified_at).toLocaleString('id-ID')}` : ''}
+
+========================================
+Thank you for your transaction!
+      `;
+
+      // Create and download as text file
+      const blob = new Blob([invoiceContent], { type: 'text/plain' });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `Invoice_${payment.reference_code || payment.id.substring(0, 8)}.txt`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+      
+      toast.success('Invoice berhasil diunduh');
+    } catch (error) {
+      console.error('Failed to download invoice:', error);
+      toast.error('Gagal mengunduh invoice. Silakan coba lagi.');
+    }
+  };
+
+  const filteredPayments = payments.filter((payment) => {
+    const matchesSearch =
+      payment.reference_code?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      payment.accounts?.some(acc => 
+        acc.account_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        acc.platform?.toLowerCase().includes(searchTerm.toLowerCase())
+      );
+    const matchesStatus = !statusFilter || payment.status === statusFilter;
+    return matchesSearch && matchesStatus;
+  });
+
+  if (loading) {
+    return (
+      <div className="container mx-auto px-4 py-8">
+        <div className="flex justify-center items-center h-64">
+          <p>{t('loading')}...</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="container mx-auto px-4 py-8">
+      {/* Header */}
+      <div className="flex justify-between items-center mb-6">
+        <div className="flex items-center gap-4">
+          <Button
+            variant="ghost"
+            onClick={() => navigate(-1)}
+            className="flex items-center gap-2"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            {t('back')}
+          </Button>
+          <h1 className="text-2xl font-bold">{t('paymentHistory') || 'Riwayat Top Up'}</h1>
+        </div>
+        <Button
+          onClick={() => navigate('/dashboard/topup')}
+          className="bg-black text-white hover:bg-gray-800"
+        >
+          Top Up Baru
+        </Button>
+      </div>
+
+      {/* Summary Cards */}
+      <Card className="mb-6">
+        <CardHeader>
+          <CardTitle>Ringkasan Riwayat Top-Up</CardTitle>
+          <CardDescription>Total transaksi dan nominal</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
+            {/* Total Transactions */}
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+              <div className="flex items-center justify-between mb-2">
+                <CreditCard className="h-5 w-5 text-blue-600" />
+              </div>
+              <div className="text-3xl font-bold text-blue-600">{summary.total}</div>
+              <div className="text-sm text-gray-600 mt-1">Total Transaksi</div>
+            </div>
+
+            {/* Verified */}
+            <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+              <div className="flex items-center justify-between mb-2">
+                <CheckCircle2 className="h-5 w-5 text-green-600" />
+              </div>
+              <div className="text-3xl font-bold text-green-600">{summary.verified}</div>
+              <div className="text-sm text-gray-600 mt-1">Terverifikasi</div>
+            </div>
+
+            {/* Pending */}
+            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+              <div className="flex items-center justify-between mb-2">
+                <Clock className="h-5 w-5 text-yellow-600" />
+              </div>
+              <div className="text-3xl font-bold text-yellow-600">{summary.pending}</div>
+              <div className="text-sm text-gray-600 mt-1">Menunggu</div>
+            </div>
+
+            {/* Total IDR */}
+            <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
+              <div className="flex items-center justify-between mb-2">
+                <Wallet className="h-5 w-5 text-purple-600" />
+              </div>
+              <div className="text-2xl font-bold text-purple-600">{formatCurrency(summary.totalIDR, 'IDR')}</div>
+              <div className="text-sm text-gray-600 mt-1">Total IDR</div>
+            </div>
+
+            {/* IDR Verified */}
+            <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+              <div className="flex items-center justify-between mb-2">
+                <Wallet className="h-5 w-5 text-green-600" />
+              </div>
+              <div className="text-2xl font-bold text-green-600">{formatCurrency(summary.verifiedIDR, 'IDR')}</div>
+              <div className="text-sm text-gray-600 mt-1">IDR Verified</div>
+            </div>
+
+            {/* Total USD */}
+            <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-4">
+              <div className="flex items-center justify-between mb-2">
+                <Wallet className="h-5 w-5 text-indigo-600" />
+              </div>
+              <div className="text-2xl font-bold text-indigo-600">{formatCurrency(summary.totalUSD, 'USD')}</div>
+              <div className="text-sm text-gray-600 mt-1">Total USD</div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Transaction List */}
+      <Card>
+        <CardContent className="pt-6">
+          {/* Filters */}
+          <div className="flex gap-4 mb-6">
+            <div className="flex-1">
+              <Input
+                placeholder={t('search')}
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full"
+              />
+            </div>
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="px-4 py-2 border rounded-md"
+            >
+              <option value="">{t('allStatus')}</option>
+              <option value="pending">{t('pending')}</option>
+              <option value="proof_uploaded">{t('proof_uploaded')}</option>
+              <option value="verified">{t('verified')}</option>
+              <option value="approved">{t('approved')}</option>
+              <option value="completed">{t('completed')}</option>
+              <option value="rejected">{t('rejected')}</option>
+            </select>
+          </div>
+
+          {/* Payment List */}
+          <div className="space-y-4">
+            {filteredPayments.length === 0 ? (
+              <p className="text-center text-gray-500 py-8">
+                {t('noPayments')}
+              </p>
+            ) : (
+              filteredPayments.map((payment) => (
+                <div
+                  key={payment.id}
+                  className="relative border border-gray-200 rounded-xl p-6 hover:shadow-xl hover:border-blue-300 transition-all duration-200 bg-gradient-to-r from-white to-gray-50"
+                >
+                  <div className="flex justify-between items-start gap-6">
+                    {/* Left Side - Amount and Details */}
+                    <div className="flex-1">
+                      {/* Amount with Icon */}
+                      <div className="flex items-center gap-3 mb-3">
+                        <div className="p-2 bg-blue-50 rounded-lg">
+                          <Banknote className="h-6 w-6 text-blue-600" />
+                        </div>
+                        <h3 className="text-3xl font-bold text-blue-600">
+                          {formatCurrency(payment.total_amount - (payment.total_fee || 0), payment.currency)}
+                        </h3>
+                      </div>
+
+                      {/* Status Badge with Icon */}
+                      <div className="mb-4">
+                        <Badge className={`${getStatusColor(payment.status)} border px-3 py-1.5 text-sm font-semibold flex items-center gap-1.5 w-fit`}>
+                          <Upload className="h-4 w-4" />
+                          {getStatusText(payment.status)}
+                        </Badge>
+                      </div>
+                      
+                      {/* Transaction Details */}
+                      <div className="space-y-2 text-sm">
+                        {payment.accounts_count > 0 ? (
+                          <>
+                            <div className="flex items-center gap-2">
+                              <span className="inline-block px-2 py-1 bg-gray-100 rounded text-gray-700 font-medium">
+                                {payment.accounts_count} account
+                              </span>
+                            </div>
+                            {payment.total_fee > 0 && (
+                              <p className="text-gray-600">
+                                <span className="font-medium">Fee:</span> {formatCurrency(payment.total_fee, payment.currency)}
+                              </p>
+                            )}
+                          </>
+                        ) : (
+                          <>
+                            <div className="flex items-center gap-2">
+                              <span className="inline-block px-2 py-1 bg-purple-100 text-purple-700 rounded font-medium">
+                                Wallet Top-Up
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className="inline-block px-2 py-1 bg-gray-100 text-gray-700 rounded font-medium">
+                                main Wallet
+                              </span>
+                            </div>
+                          </>
+                        )}
+                        
+                        {payment.unique_code && (
+                          <p className="text-gray-700">
+                            <span className="font-medium">Kode Unik:</span>{' '}
+                            <span className="font-bold text-blue-600">+{payment.unique_code}</span>
+                          </p>
+                        )}
+                        
+                        {payment.payment_proof?.uploaded && (
+                          <div className="flex items-center gap-1.5 text-green-600 font-medium">
+                            <Upload className="h-4 w-4" />
+                            <span>Proof uploaded</span>
+                          </div>
+                        )}
+                        
+                        {payment.verified_at && (
+                          <p className="text-green-600 font-medium">
+                            <span className="font-semibold">Verified:</span>{' '}
+                            {new Date(payment.verified_at).toLocaleDateString('id-ID', {
+                              day: 'numeric',
+                              month: 'short',
+                              year: 'numeric',
+                              hour: '2-digit',
+                              minute: '2-digit'
+                            })}
+                          </p>
+                        )}
+                      </div>
+
+                      {/* Action Buttons */}
+                      <div className="flex gap-2 mt-5">
+                        <Button 
+                          size="sm" 
+                          variant="outline"
+                          onClick={() => handleViewDetails(payment.id)}
+                          className="flex items-center gap-2 hover:bg-blue-50 hover:border-blue-400"
+                        >
+                          <Eye className="h-4 w-4" />
+                          View Details
+                        </Button>
+                        {(payment.status === 'verified' || payment.status === 'approved' || payment.status === 'completed') && (
+                          <Button 
+                            size="sm" 
+                            variant="outline"
+                            onClick={() => handleDownloadInvoice(payment.id)}
+                            className="flex items-center gap-2 hover:bg-green-50 hover:border-green-400"
+                          >
+                            <Download className="h-4 w-4" />
+                            Download Invoice
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Right Side - Transaction ID and Date */}
+                    <div className="text-right min-w-[180px]">
+                      <div className="mb-2 p-2 bg-gray-100 rounded-lg">
+                        <p className="text-xs text-gray-500 mb-1">Transaction ID</p>
+                        <p className="text-sm font-mono font-bold text-gray-800">
+                          {payment.reference_code || payment.id.substring(0, 11).toUpperCase()}
+                        </p>
+                      </div>
+                      <p className="text-sm text-gray-600 mt-2">
+                        {new Date(payment.created_at).toLocaleDateString('id-ID', {
+                          day: 'numeric',
+                          month: 'short',
+                          year: 'numeric'
+                        })}
+                      </p>
+                      <p className="text-sm font-semibold text-gray-700">
+                        {new Date(payment.created_at).toLocaleTimeString('id-ID', {
+                          hour: '2-digit',
+                          minute: '2-digit'
+                        })}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+};
+
+export default PaymentHistory;
