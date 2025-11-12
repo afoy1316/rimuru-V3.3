@@ -4,9 +4,13 @@ Provides file upload, download, and management functionality using GCS buckets
 """
 import os
 import uuid
+import json
+import base64
+import tempfile
 from typing import Optional, BinaryIO
 from google.cloud import storage
 from google.cloud.exceptions import NotFound, GoogleCloudError
+from google.oauth2 import service_account
 from datetime import timedelta
 import logging
 
@@ -20,12 +24,26 @@ class GCSStorage:
         self.project_id = os.environ.get("GCS_PROJECT_ID")
         self.bucket_name = os.environ.get("GCS_BUCKET_NAME")
         credentials_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
+        credentials_base64 = os.environ.get("GCS_CREDENTIALS_BASE64")
         
-        if not all([self.project_id, self.bucket_name, credentials_path]):
-            raise ValueError("GCS configuration missing. Check GCS_PROJECT_ID, GCS_BUCKET_NAME, GOOGLE_APPLICATION_CREDENTIALS")
+        if not all([self.project_id, self.bucket_name]):
+            raise ValueError("GCS configuration missing. Check GCS_PROJECT_ID, GCS_BUCKET_NAME")
         
         try:
-            self.client = storage.Client(project=self.project_id)
+            # Try to use base64 credentials first (for deployment)
+            if credentials_base64:
+                logger.info("Using base64-encoded GCS credentials")
+                credentials_json = base64.b64decode(credentials_base64).decode('utf-8')
+                credentials_dict = json.loads(credentials_json)
+                credentials = service_account.Credentials.from_service_account_info(credentials_dict)
+                self.client = storage.Client(project=self.project_id, credentials=credentials)
+            # Fallback to credentials file path (for local development)
+            elif credentials_path:
+                logger.info(f"Using GCS credentials from file: {credentials_path}")
+                self.client = storage.Client(project=self.project_id)
+            else:
+                raise ValueError("No GCS credentials provided. Set either GCS_CREDENTIALS_BASE64 or GOOGLE_APPLICATION_CREDENTIALS")
+            
             self.bucket = self.client.bucket(self.bucket_name)
             
             # Skip bucket existence check - assume bucket exists and service account has proper access
